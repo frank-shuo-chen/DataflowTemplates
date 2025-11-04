@@ -38,6 +38,8 @@ import com.google.cloud.teleport.v2.values.FailsafeElement;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import org.apache.beam.runners.dataflow.options.DataflowPipelineWorkerPoolOptions;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.PipelineResult;
@@ -57,15 +59,21 @@ import org.apache.beam.sdk.options.PipelineOptions;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.Flatten;
+import org.apache.beam.sdk.transforms.GroupByKey;
 import org.apache.beam.sdk.transforms.MapElements;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.ParDo;
+import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
+import org.apache.beam.sdk.transforms.windowing.FixedWindows;
+import org.apache.beam.sdk.transforms.windowing.Window;
+import org.apache.beam.sdk.values.KV;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PCollectionList;
 import org.apache.beam.sdk.values.PCollectionTuple;
 import org.apache.beam.sdk.values.Row;
 import org.apache.beam.sdk.values.TupleTag;
 import org.apache.beam.sdk.values.TupleTagList;
+import org.joda.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -88,56 +96,56 @@ import org.slf4j.LoggerFactory;
  * for instructions on how to use or modify this template.
  */
 @MultiTemplate({
-  @Template(
-      name = "PubSub_to_BigQuery_Flex",
-      category = TemplateCategory.STREAMING,
-      displayName = "Pub/Sub to BigQuery",
-      description =
-          "The Pub/Sub to BigQuery template is a streaming pipeline that reads JSON-formatted messages from a Pub/Sub topic or subscription, and writes them to a BigQuery table. "
-              + "You can use the template as a quick solution to move Pub/Sub data to BigQuery. "
-              + "The template reads JSON-formatted messages from Pub/Sub and converts them to BigQuery elements.",
-      optionsClass = Options.class,
-      skipOptions = {
-        "pythonExternalTextTransformGcsPath",
-        "pythonExternalTextTransformFunctionName",
-      },
-      flexContainerName = "pubsub-to-bigquery",
-      documentation =
-          "https://cloud.google.com/dataflow/docs/guides/templates/provided/pubsub-to-bigquery",
-      contactInformation = "https://cloud.google.com/support",
-      requirements = {
-        "The <a href=\"https://cloud.google.com/pubsub/docs/reference/rest/v1/PubsubMessage\">`data` field</a> of Pub/Sub messages must use the JSON format, described in this <a href=\"https://developers.google.com/api-client-library/java/google-http-java-client/json\">JSON guide</a>. For example, messages with values in the `data` field formatted as `{\"k1\":\"v1\", \"k2\":\"v2\"}` can be inserted into a BigQuery table with two columns, named `k1` and `k2`, with a string data type.",
-        "The output table must exist prior to running the pipeline. The table schema must match the input JSON objects."
-      },
-      streaming = true,
-      supportsAtLeastOnce = true,
-      supportsExactlyOnce = true),
-  @Template(
-      name = "PubSub_to_BigQuery_Xlang",
-      category = TemplateCategory.STREAMING,
-      displayName = "Pub/Sub to BigQuery with Python UDFs",
-      type = Template.TemplateType.XLANG,
-      description =
-          "The Pub/Sub to BigQuery template is a streaming pipeline that reads JSON-formatted messages from a Pub/Sub topic or subscription, and writes them to a BigQuery table. "
-              + "You can use the template as a quick solution to move Pub/Sub data to BigQuery. "
-              + "The template reads JSON-formatted messages from Pub/Sub and converts them to BigQuery elements.",
-      optionsClass = Options.class,
-      skipOptions = {
-        "javascriptTextTransformGcsPath",
-        "javascriptTextTransformFunctionName",
-        "javascriptTextTransformReloadIntervalMinutes"
-      },
-      flexContainerName = "pubsub-to-bigquery-xlang",
-      documentation =
-          "https://cloud.google.com/dataflow/docs/guides/templates/provided/pubsub-to-bigquery",
-      contactInformation = "https://cloud.google.com/support",
-      requirements = {
-        "The <a href=\"https://cloud.google.com/pubsub/docs/reference/rest/v1/PubsubMessage\">`data` field</a> of Pub/Sub messages must use the JSON format, described in this <a href=\"https://developers.google.com/api-client-library/java/google-http-java-client/json\">JSON guide</a>. For example, messages with values in the `data` field formatted as `{\"k1\":\"v1\", \"k2\":\"v2\"}` can be inserted into a BigQuery table with two columns, named `k1` and `k2`, with a string data type.",
-        "The output table must exist prior to running the pipeline. The table schema must match the input JSON objects."
-      },
-      streaming = true,
-      supportsAtLeastOnce = true,
-      supportsExactlyOnce = true)
+    @Template(
+        name = "PubSub_to_BigQuery_Flex",
+        category = TemplateCategory.STREAMING,
+        displayName = "Pub/Sub to BigQuery",
+        description =
+            "The Pub/Sub to BigQuery template is a streaming pipeline that reads JSON-formatted messages from a Pub/Sub topic or subscription, and writes them to a BigQuery table. "
+                + "You can use the template as a quick solution to move Pub/Sub data to BigQuery. "
+                + "The template reads JSON-formatted messages from Pub/Sub and converts them to BigQuery elements.",
+        optionsClass = Options.class,
+        skipOptions = {
+            "pythonExternalTextTransformGcsPath",
+            "pythonExternalTextTransformFunctionName",
+        },
+        flexContainerName = "pubsub-to-bigquery",
+        documentation =
+            "https://cloud.google.com/dataflow/docs/guides/templates/provided/pubsub-to-bigquery",
+        contactInformation = "https://cloud.google.com/support",
+        requirements = {
+            "The <a href=\"https://cloud.google.com/pubsub/docs/reference/rest/v1/PubsubMessage\">`data` field</a> of Pub/Sub messages must use the JSON format, described in this <a href=\"https://developers.google.com/api-client-library/java/google-http-java-client/json\">JSON guide</a>. For example, messages with values in the `data` field formatted as `{\"k1\":\"v1\", \"k2\":\"v2\"}` can be inserted into a BigQuery table with two columns, named `k1` and `k2`, with a string data type.",
+            "The output table must exist prior to running the pipeline. The table schema must match the input JSON objects."
+        },
+        streaming = true,
+        supportsAtLeastOnce = true,
+        supportsExactlyOnce = true),
+    @Template(
+        name = "PubSub_to_BigQuery_Xlang",
+        category = TemplateCategory.STREAMING,
+        displayName = "Pub/Sub to BigQuery with Python UDFs",
+        type = Template.TemplateType.XLANG,
+        description =
+            "The Pub/Sub to BigQuery template is a streaming pipeline that reads JSON-formatted messages from a Pub/Sub topic or subscription, and writes them to a BigQuery table. "
+                + "You can use the template as a quick solution to move Pub/Sub data to BigQuery. "
+                + "The template reads JSON-formatted messages from Pub/Sub and converts them to BigQuery elements.",
+        optionsClass = Options.class,
+        skipOptions = {
+            "javascriptTextTransformGcsPath",
+            "javascriptTextTransformFunctionName",
+            "javascriptTextTransformReloadIntervalMinutes"
+        },
+        flexContainerName = "pubsub-to-bigquery-xlang",
+        documentation =
+            "https://cloud.google.com/dataflow/docs/guides/templates/provided/pubsub-to-bigquery",
+        contactInformation = "https://cloud.google.com/support",
+        requirements = {
+            "The <a href=\"https://cloud.google.com/pubsub/docs/reference/rest/v1/PubsubMessage\">`data` field</a> of Pub/Sub messages must use the JSON format, described in this <a href=\"https://developers.google.com/api-client-library/java/google-http-java-client/json\">JSON guide</a>. For example, messages with values in the `data` field formatted as `{\"k1\":\"v1\", \"k2\":\"v2\"}` can be inserted into a BigQuery table with two columns, named `k1` and `k2`, with a string data type.",
+            "The output table must exist prior to running the pipeline. The table schema must match the input JSON objects."
+        },
+        streaming = true,
+        supportsAtLeastOnce = true,
+        supportsExactlyOnce = true)
 })
 public class PubSubToBigQuery {
 
@@ -150,6 +158,9 @@ public class PubSubToBigQuery {
 
   /** The tag for the main output of the json transformation. */
   public static final TupleTag<TableRow> TRANSFORM_OUT = new TupleTag<TableRow>() {};
+
+  /** The tag for the main output of the GBK. */
+  public static final TupleTag<TableRow> GBK_OUT = new TupleTag<TableRow>();
 
   /** The tag for the dead-letter output of the udf. */
   public static final TupleTag<FailsafeElement<PubsubMessage, String>> UDF_DEADLETTER_OUT =
@@ -176,9 +187,9 @@ public class PubSubToBigQuery {
    */
   public interface Options
       extends PipelineOptions,
-          BigQueryStorageApiStreamingOptions,
-          PythonExternalTextTransformerOptions,
-          DataflowPipelineWorkerPoolOptions {
+      BigQueryStorageApiStreamingOptions,
+      PythonExternalTextTransformerOptions,
+      DataflowPipelineWorkerPoolOptions {
     @TemplateParameter.BigQueryTable(
         order = 1,
         groupName = "Target",
@@ -326,12 +337,72 @@ public class PubSubToBigQuery {
              */
             .apply("ConvertMessageToTableRow", new PubsubMessageToTableRow(options));
 
+    /* GBK here */
+    // 1. Get the PCollection of successfully converted TableRows
+    PCollection<TableRow> successfulRows = convertedTableRows.get(TRANSFORM_OUT);
+
+    // 2. Apply Fixed Windowing (1 minute)
+    PCollection<TableRow> windowedRecords =
+        successfulRows.apply(
+            "ApplyFixedWindow",
+            Window.into(FixedWindows.of(Duration.standardMinutes(1))));
+
+    // 3. Extract the 'log_stream' key and strip the Failsafe wrapper
+    // Output Type: PCollection<KV<String, TableRow>>
+    PCollection<KV<String, TableRow>> keyedRecords =
+        windowedRecords.apply(
+            "ExtractLogStreamIdKey",
+            ParDo.of(new DoFn<TableRow, KV<String, TableRow>>() {
+              @ProcessElement
+              public void processElement(
+                  @Element TableRow row,
+                  OutputReceiver<KV<String, TableRow>> out) {
+                String logStreamId = (String) row.get("logStreamId");
+
+                // Output the clean KV pair required for GroupByKey
+                out.output(KV.of(logStreamId, row));
+              }
+            })
+        );
+
+
+    // 4. Group all records by 'log_stream' within the 1-minute windows
+    // Output Type: PCollection<KV<String, Iterable<TableRow>>>
+    PCollection<KV<String, Iterable<TableRow>>> groupedRecords =
+        keyedRecords.apply("GroupMessagesByLogStreamId", GroupByKey.create());
+
+    PCollection<TableRow> finalAggregatedOutput =
+        groupedRecords.apply(
+            "CollectMessagesIntoList",
+            ParDo.of(new DoFn<KV<String, Iterable<TableRow>>, TableRow>() {
+              @ProcessElement
+              public void processElement(
+                  @Element KV<String, Iterable<TableRow>> element,
+                  OutputReceiver<TableRow> out,
+                  BoundedWindow window) {
+
+                String logStreamId = element.getKey();
+                List<String> messages = new ArrayList<>();
+
+                for (TableRow row : element.getValue()) {
+                  messages.add((String) row.get("message"));
+                }
+
+                // Create the final, aggregated TableRow
+                TableRow finalRow = new TableRow()
+                    .set("logStreamId", logStreamId)
+                    .set("messages", messages)
+                    .set("windowEnd", window.maxTimestamp().toString());
+
+                out.output(finalRow);
+              }
+            }));
+
     /*
      * Step #3: Write the successful records out to BigQuery
      */
     WriteResult writeResult =
-        convertedTableRows
-            .get(TRANSFORM_OUT)
+        finalAggregatedOutput
             .apply(
                 "WriteSuccessfulRecords",
                 BigQueryIO.writeTableRows()
